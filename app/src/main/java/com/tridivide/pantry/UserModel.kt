@@ -28,7 +28,7 @@ object UserModel: Observable() {
         return instance().collection("users")
     }
 
-    fun signUpAndLogin(name: String, email: String, password: String, profileImageUrl: URI?, onComplete: IDataModelResult<User>) {
+    fun signUpAndLogin(name: String, email: String, password: String, profileImageUrl: Uri?, onComplete: IDataModelResult<User>) {
         FirebaseAuth.getInstance().createUserWithEmailAndPassword(email, password).addOnCompleteListener { signUp ->
             Log.i("signupandLogin", "registered user " + signUp.isSuccessful)
             if (signUp.isSuccessful) {
@@ -40,7 +40,13 @@ object UserModel: Observable() {
                     uploadUser(user, object :IDataModelResult<Boolean> {
                         override fun onComplete(data: Boolean?, exception: Exception?) {
                             if (data != null && data) {
-                                setUserProfileImage()
+                                setUserProfileImage(userId, profileImageUrl!!, object : IDataModelResult<Boolean>{
+                                    override fun onComplete(data: Boolean?, exception: Exception?) {
+                                        if (data != null && data) {
+                                            onComplete.onComplete(user, null)
+                                        }
+                                    }
+                                })
                             }
                         }
                     })
@@ -66,7 +72,7 @@ object UserModel: Observable() {
         }
     }
 
-    private fun setUserProfileImage(userId: String, profileImageUrl: Uri, onComplete: IDataModelResult<User?>) {
+    private fun setUserProfileImage(userId: String, profileImageUrl: Uri, onComplete: IDataModelResult<Boolean>) {
         val user = mCurrentUser
         if (user != null) {
             FirebaseStorage.getInstance().reference.child("users").child(userId).putFile(profileImageUrl).addOnCompleteListener { uploadedImage ->
@@ -86,7 +92,7 @@ object UserModel: Observable() {
         }
     }
 
-    fun updateUser(user: User, onComplete: IDataModelResult<User?>) {
+    fun updateUser(user: User, onComplete: IDataModelResult<Boolean>) {
         val firebaseUser = FirebaseAuth.getInstance().currentUser
         if (firebaseUser != null) {
             val oldEmailAddress = firebaseUser.email
@@ -101,7 +107,7 @@ object UserModel: Observable() {
                                             if (res is DocumentSnapshot) {
                                                 val user = User(res)
                                                 this.mCurrentUser = user
-                                                onComplete.onComplete(user, null)
+                                                onComplete.onComplete(true, null)
                                             }
                                         }
                                         catch(e: Exception) {
@@ -145,6 +151,37 @@ object UserModel: Observable() {
             else {
                 return onComplete.onComplete(null, null)
             }
+        }
+    }
+
+    fun login(email: String, password: String, onComplete: IDataModelResult<User>) {
+        FirebaseAuth.getInstance().signInWithEmailAndPassword(email, password).addOnCompleteListener{
+            if(it.isSuccessful) {
+                val userId = FirebaseAuth.getInstance().uid
+                if (userId != null) {
+                    getDatabaseRef().document(userId).get().addOnCompleteListener { result ->
+                        if (result.isSuccessful && result.result != null) {
+                            var user: User? = null
+                            try {
+                                user = User(result.result!!)
+                            }
+                            catch (e: Exception) {
+                                onComplete.onComplete(null, e)
+                            }
+                            onComplete.onComplete(user, null)
+                        }
+                        else {
+                            onComplete.onComplete(null, result.exception)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun resetPassword(email: String, onComplete: IDataModelResult<Boolean>) {
+        FirebaseAuth.getInstance().sendPasswordResetEmail(email).addOnCompleteListener {
+            onComplete.onComplete(it.isSuccessful, it.exception)
         }
     }
 }
